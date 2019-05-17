@@ -77,6 +77,8 @@ public class NativeImageGeneratorRunner implements ImageBuildTask {
 
     private volatile NativeImageGenerator generator;
 
+    public static NativeImageClassLoader customNativeImageClassloader;
+
     public static void main(String[] args) {
         ArrayList<String> arguments = new ArrayList<>(Arrays.asList(args));
         final String[] classpath = extractImageClassPath(arguments);
@@ -110,6 +112,7 @@ public class NativeImageGeneratorRunner implements ImageBuildTask {
         ClassLoader applicationClassLoader = Thread.currentThread().getContextClassLoader();
         nativeImageClassLoader = new NativeImageClassLoader(verifyClassPathAndConvertToURLs(classpath), applicationClassLoader);
         Thread.currentThread().setContextClassLoader(nativeImageClassLoader);
+        customNativeImageClassloader = nativeImageClassLoader;
         return nativeImageClassLoader;
     }
 
@@ -378,5 +381,9 @@ public class NativeImageGeneratorRunner implements ImageBuildTask {
         if (generatorInstance != null) {
             generatorInstance.interruptBuild();
         }
+    }
+
+    public static NativeImageClassLoader getCustomNativeImageClassloader() {
+        return customNativeImageClassloader;
     }
 }

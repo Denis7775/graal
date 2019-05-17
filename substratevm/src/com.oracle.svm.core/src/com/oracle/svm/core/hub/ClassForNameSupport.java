@@ -46,11 +46,24 @@ public final class ClassForNameSupport {
 
     @Substitute
     public static Class<?> forName(String className) throws ClassNotFoundException {
+        tryRegisterClass(className);
         Class<?> result = ImageSingletons.lookup(ClassForNameSupport.class).knownClasses.get(className);
         if (result == null) {
             throw new ClassNotFoundException(className);
         }
         return result;
+    }
+
+    @Substitute
+    private static void tryRegisterClass(String className) throws ClassNotFoundException{
+        NativeImageClassLoader classLoader = NativeImageGeneratorRunner.getCustomNativeImageClassloader();
+        Class<?> clazz = Class.forName(className, false, classLoader);
+        if (clazz == null) {
+            throw new ClassNotFoundException(className);
+        }
+        if (!knownClasses.containsKey(clazz.getName())) {
+            registerClass(clazz);
+        }
     }
 }
 
