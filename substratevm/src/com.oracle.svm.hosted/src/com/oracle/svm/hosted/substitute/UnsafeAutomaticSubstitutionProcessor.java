@@ -29,6 +29,7 @@ import static com.oracle.svm.core.annotate.RecomputeFieldValue.Kind.ArrayBaseOff
 import static com.oracle.svm.core.annotate.RecomputeFieldValue.Kind.ArrayIndexScale;
 import static com.oracle.svm.core.annotate.RecomputeFieldValue.Kind.ArrayIndexShift;
 import static com.oracle.svm.core.annotate.RecomputeFieldValue.Kind.FieldOffset;
+import static com.oracle.svm.core.annotate.RecomputeFieldValue.Kind.StaticFieldOffset;
 import static org.graalvm.compiler.nodes.graphbuilderconf.InlineInvokePlugin.InlineInfo.createStandardInlineInfo;
 
 import java.lang.reflect.Field;
@@ -129,6 +130,7 @@ public class UnsafeAutomaticSubstitutionProcessor extends SubstitutionProcessor 
     private ResolvedJavaMethod unsafeArrayBaseOffsetMethod;
     private ResolvedJavaMethod unsafeArrayIndexScaleMethod;
     private ResolvedJavaMethod integerNumberOfLeadingZerosMethod;
+    private ResolvedJavaMethod unsafeStaticFieldOffsetMethod;
 
     private GraphBuilderPhase builderPhase;
 
@@ -162,6 +164,9 @@ public class UnsafeAutomaticSubstitutionProcessor extends SubstitutionProcessor 
 
             Method unsafeArrayBaseOffset = sun.misc.Unsafe.class.getMethod("arrayBaseOffset", java.lang.Class.class);
             unsafeArrayBaseOffsetMethod = originalMetaAccess.lookupJavaMethod(unsafeArrayBaseOffset);
+
+            Method unsafeStaticFieldOffset = sun.misc.Unsafe.getMethod("staticFieldOffset", java.lang.Class.class);
+            unsafeStaticFieldOffsetMethod = originalMetaAccess.lookupJavaMethod(unsafeStaticFieldOffset);
 
             Method unsafeArrayIndexScale = sun.misc.Unsafe.class.getMethod("arrayIndexScale", java.lang.Class.class);
             unsafeArrayIndexScaleMethod = originalMetaAccess.lookupJavaMethod(unsafeArrayIndexScale);
@@ -281,6 +286,8 @@ public class UnsafeAutomaticSubstitutionProcessor extends SubstitutionProcessor 
                             processUnsafeObjectFieldOffsetInvoke(hostType, invoke);
                         } else if (isInvokeTo(invoke, unsafeArrayBaseOffsetMethod)) {
                             processUnsafeArrayBaseOffsetInvoke(hostType, invoke);
+                        } else if (isInvokeTo(invoke, unsafeStaticFieldOffsetMethod)) {
+                            processUnsafeStaticFieldOffsetFieldInvoke(hostType, invoke);
                         } else if (isInvokeTo(invoke, unsafeArrayIndexScaleMethod)) {
                             processUnsafeArrayIndexScaleInvoke(hostType, invoke, clinitGraph);
                         }
@@ -338,6 +345,33 @@ public class UnsafeAutomaticSubstitutionProcessor extends SubstitutionProcessor 
         } else {
             reportUnsuccessfulAutomaticRecomputation(type, offsetField, unsafeObjectFieldOffsetInvoke, FieldOffset, unsuccessfulReasons);
         }
+    }
+
+    /**
+     * Process call to <code>Unsafe.objectFieldOffset(Field)</code>. The matching logic below
+     * applies to the following code pattern:
+     *
+     * <code> static final long fieldOffset = Unsafe.getUnsafe().staticFieldOffset(X.class.getDeclaredField("f")); </code>
+     */
+    private void processUnsafeStaticFieldOffsetFieldInvoke(ResolvedJavaType type, Invoke unsafeStaticFieldOffsetInvoke) {
+        List<String> unsuccessfulReasons = new ArrayList<>();
+
+        Class<?> targetFieldHolder = null;
+        String targetFieldName = null;
+
+        ValueNode fieldArgument = unsafeStaticFieldOffsetInvoke.callTarget().arguments().get(1);
+        if (fieldArgument.isConstant()) {
+            Field field = snippetReflection.asObject(Field.class, fieldArgument.asJavaConstant());
+            if (field == null) {
+                unsuccessfulReasons.add("The argument of Unsafe.staticFieldOffset() is a null constant.");
+            } else {
+                targetFieldHolder = field.getDeclaringClass();
+                targetFieldName = field.getName();
+            }
+        } else {
+            unsuccessfulReasons.add("The argument of Unsafe.objectFieldOffset(Field) is not a constant field.");
+        }
+        processUnsafeStaticFieldOffsetInvoke(type, unsafeStaticFieldOffsetInvoke, unsuccessfulReasons, targetFieldHolder, targetFieldName);
     }
 
     /**
@@ -565,6 +599,35 @@ public class UnsafeAutomaticSubstitutionProcessor extends SubstitutionProcessor 
         }
 
         return false;
+    }
+
+    private void processUnsafeStaticFieldOffsetInvoke(
+            ResolvedJavaType type,
+            Invoke unsafeStaticFieldOffsetInvoke,
+            List<String> unsuccessfulReasons,
+            Class<?> targetFieldHolder,
+            String targetFieldName) {
+
+        /*
+         * If the value returned by the call to Unsafe.staticFieldOffset() is stored into a field
+         * then that must be the offset field.
+         */
+        ResolvedJavaField offsetStaticField = extractValueStoreField(unsafeStaticFieldOffsetInvoke.asNode(), StaticFieldOffset, unsuccessfulReasons);
+
+        /*
+         * If the target field holder and name, and the offset field were found try to register a
+         * substitution.
+         */
+        if (targetFieldHolder != null && targetFieldName != null && offsetStaticField != null) {
+            Class<?> finalTargetFieldHolder = targetFieldHolder;
+            String finalTargetFieldName = targetFieldName;
+            Supplier<ComputedValueField> supplier = () -> new ComputedValueField(offsetStaticField, null, StaticFieldOffset, finalTargetFieldHolder, finalTargetFieldName, false);
+            if (tryAutomaticRecomputation(offsetStaticField, StaticFieldOffset, supplier)) {
+                reportSuccessfulAutomaticRecomputation(StaticFieldOffset, offsetStaticField, targetFieldHolder.getName() + "." + targetFieldName);
+            }
+        } else {
+            reportUnsuccessfulAutomaticRecomputation(type, offsetStaticField, unsafeStaticFieldOffsetInvoke, StaticFieldOffset, unsuccessfulReasons);
+        }
     }
 
     /**

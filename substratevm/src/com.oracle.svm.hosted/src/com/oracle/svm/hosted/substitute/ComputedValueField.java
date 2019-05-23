@@ -89,6 +89,7 @@ public class ComputedValueField implements ReadableJavaField, ComputedValue {
                 constantValue = ReadableJavaField.readFieldValue(GraalAccess.getOriginalProviders().getConstantReflection(), annotated, null);
                 break;
             case FieldOffset:
+            case StaticFieldOffset:
                 try {
                     f = targetClass.getDeclaredField(targetName);
                 } catch (NoSuchFieldException e) {
@@ -103,7 +104,8 @@ public class ComputedValueField implements ReadableJavaField, ComputedValue {
 
     public static boolean isFinalValid(RecomputeFieldValue.Kind kind) {
         EnumSet<RecomputeFieldValue.Kind> finalIllegal = EnumSet.of(RecomputeFieldValue.Kind.FieldOffset,
-                        RecomputeFieldValue.Kind.TranslateFieldOffset, RecomputeFieldValue.Kind.AtomicFieldUpdaterOffset);
+                        RecomputeFieldValue.Kind.TranslateFieldOffset, RecomputeFieldValue.Kind.AtomicFieldUpdaterOffset,
+                RecomputeFieldValue.Kind.StaticFieldOffset);
         return !finalIllegal.contains(kind);
     }
 
@@ -160,6 +162,7 @@ public class ComputedValueField implements ReadableJavaField, ComputedValue {
     public void processAnalysis(AnalysisMetaAccess aMetaAccess) {
         switch (kind) {
             case FieldOffset:
+            case StaticFieldOffset:
                 AnalysisField target = aMetaAccess.lookupJavaField(targetField);
                 target.registerAsAccessed();
                 break;
@@ -181,6 +184,7 @@ public class ComputedValueField implements ReadableJavaField, ComputedValue {
         hMetaAccess = metaAccess;
         switch (kind) {
             case FieldOffset:
+            case StaticFieldOffset:
                 constantValue = asConstant(hMetaAccess.lookupJavaField(targetField).getLocation());
                 break;
         }

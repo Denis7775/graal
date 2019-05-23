@@ -89,6 +89,12 @@ public @interface RecomputeFieldValue {
          */
         AtomicFieldUpdaterOffset,
         /**
+         * The int or long field is set to the offset of the static field named {@link #name} of the class
+         * {@link #declClass}, as it would be computed by
+         * {@link sun.misc.Unsafe#staticFieldOffset(Class)}.
+         */
+        StaticFieldOffset,
+        /**
          * The field offset stored in this int or long field is updated. The original value must be
          * a valid field offset in the hosted universe, and the new value is the field offset of the
          * same field in the substrate universe. The field is looked up in the class
